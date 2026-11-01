@@ -47,19 +47,25 @@ def check_tor_exit_node(ip, tor_exit_list_url='https://check.torproject.org/exit
         tor_exit_list_url (str): The URL of the Tor exit node list. Defaults to the Tor Project's official list.
 
     Returns:
-        bool: True if the IP address is found in the Tor exit node list, False otherwise.
+        bool or None: True if the IP address is found in the Tor exit node
+        list, False if it was checked and not found, and None when the
+        list could not be fetched, so the check result is unknown.
     """
     try:
         response = requests.get(tor_exit_list_url, timeout=10)
         response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-        exit_nodes = response.text.splitlines()
-        if ip in exit_nodes:
-            return True
-        else:
-            return False
+        # The published list carries each address on an ExitAddress line
+        # together with a date: "ExitAddress 203.0.113.9 2026-10-30 02:03:04".
+        # Parse the address field out of each such line and compare those.
+        exit_addresses = set()
+        for line in response.text.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "ExitAddress":
+                exit_addresses.add(parts[1])
+        return ip in exit_addresses
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching Tor exit node list: {e}")
-        return False
+        return None
 
 def setup_argparse():
     """
@@ -89,7 +95,11 @@ def main():
 
         is_tor = check_tor_exit_node(public_ip)
 
-        if is_tor:
+        if is_tor is None:
+            print("Tor check could not be completed: the Tor exit node list could not be fetched.")
+            logging.error("Tor check could not be completed: the Tor exit node list could not be fetched.")
+            sys.exit(1)
+        elif is_tor:
             print("Connection is likely routed through the Tor network.")
             logging.warning("Connection is likely routed through the Tor network.")
         else:
