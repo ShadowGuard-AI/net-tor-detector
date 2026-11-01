@@ -18,6 +18,7 @@ def is_valid_ip(ip):
         bool: True if the IP address is valid, False otherwise.
     """
     try:
+        # inet_aton is generous: it accepts short forms like 1.2 and even a bare number as an address. I only use this as a sanity check on a value ipify returned, never as a strict check on something a person typed.
         socket.inet_aton(ip)
         return True
     except socket.error:
@@ -31,6 +32,7 @@ def get_public_ip():
         str: The public IP address, or None if an error occurred.
     """
     try:
+        # My public address comes from a third party echo service. If that service is down or lying, this tool has no second source, and the whole check stops here rather than guessing from the local interface address, which would be a private address behind NAT anyway.
         response = requests.get('https://api.ipify.org?format=json', timeout=5)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
         return response.json()['ip']
@@ -62,6 +64,7 @@ def check_tor_exit_node(ip, tor_exit_list_url='https://check.torproject.org/exit
             parts = line.split()
             if len(parts) >= 2 and parts[0] == "ExitAddress":
                 exit_addresses.add(parts[1])
+        # I compare against the parsed address set instead of searching the raw text. A substring search would match an address that is only the prefix of a longer one and give a false Tor result.
         return ip in exit_addresses
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching Tor exit node list: {e}")
@@ -84,6 +87,7 @@ def main():
     parser = setup_argparse()
     args = parser.parse_args() # Parse command-line arguments
 
+    # There are no arguments to this tool at all, so it can only ever check the machine it runs on. Checking an arbitrary address would need a change here, not a flag.
     public_ip = get_public_ip()
 
     if public_ip:
@@ -95,6 +99,7 @@ def main():
 
         is_tor = check_tor_exit_node(public_ip)
 
+        # None is a real third outcome and I keep it separate from False on purpose. A failed list fetch means unknown, and printing not Tor in that case would be a claim I cannot back up.
         if is_tor is None:
             print("Tor check could not be completed: the Tor exit node list could not be fetched.")
             logging.error("Tor check could not be completed: the Tor exit node list could not be fetched.")
